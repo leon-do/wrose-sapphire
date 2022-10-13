@@ -1,5 +1,3 @@
-// Copyright (C) 2015, 2016, 2017 Dapphub
-
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
 // the Free Software Foundation, either version 3 of the License, or
@@ -13,10 +11,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-pragma solidity ^0.4.18;
+pragma solidity >=0.4.22 <0.6;
 
 contract WROSE9 {
-    string public name     = "Wrapped Rose";
+    string public name     = "Wrapped Sapphire Rose";
     string public symbol   = "WROSE";
     uint8  public decimals = 18;
 
@@ -27,8 +25,9 @@ contract WROSE9 {
 
     mapping (address => uint)                       public  balanceOf;
     mapping (address => mapping (address => uint))  public  allowance;
+    mapping (address => uint256)                    public  replayNonce;
 
-    function() public payable {
+    function() external payable {
         deposit();
     }
     function deposit() public payable {
@@ -73,6 +72,49 @@ contract WROSE9 {
         emit Transfer(src, dst, wad);
 
         return true;
+    }
+
+    function metaWithdraw(bytes memory signature, address payable to, uint256 wad, uint256 nonce, uint256 reward) public returns (bool) {
+      bytes32 metaHash = metaWithdrawHash(to, wad, nonce, reward);
+      address signer = getSigner(metaHash, signature);
+
+      require(balanceOf[signer] >= wad + reward, "Insufficient Balance");
+      require(signer != address(0), "Signer is 0x0");
+      require(nonce == replayNonce[signer], "Incorrect Nonce");
+
+      replayNonce[signer]++;
+      balanceOf[signer] -= wad + reward;
+
+      to.transfer(wad);
+      msg.sender.transfer(reward);
+    }
+
+    function metaWithdrawHash(address to, uint256 wad, uint256 nonce, uint256 reward) public view returns(bytes32){
+      return keccak256(abi.encodePacked(address(this), to, wad, nonce, reward));
+    }
+
+    function getSigner(bytes32 _hash, bytes memory _signature) public pure returns (address) {
+      bytes32 r;
+      bytes32 s;
+      uint8 v;
+      if (_signature.length != 65) {
+        return address(0);
+      }
+      assembly {
+        r := mload(add(_signature, 32))
+        s := mload(add(_signature, 64))
+        v := byte(0, mload(add(_signature, 96)))
+      }
+      if (v < 27) {
+        v += 27;
+      }
+      if (v != 27 && v != 28) {
+        return address(0);
+      } else {
+        return ecrecover(keccak256(
+          abi.encodePacked("\x19Ethereum Signed Message:\n32", _hash)
+        ), v, r, s);
+      }
     }
 }
 
